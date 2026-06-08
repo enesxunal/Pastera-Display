@@ -8,8 +8,11 @@ function getSupabase() {
     if (!config.supabaseUrl || !config.supabaseServiceKey) {
       throw new Error('SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY gerekli');
     }
+    const ws = require('ws');
     client = createClient(config.supabaseUrl, config.supabaseServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
+      // Node.js 20'de WebSocket yok — Realtime uyarısını önler
+      realtime: { transport: ws },
     });
   }
   return client;
