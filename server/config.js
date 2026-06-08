@@ -5,6 +5,7 @@ module.exports = {
   jwtSecret: process.env.JWT_SECRET || 'pastera-dev-secret',
   timezone: process.env.TZ || 'Europe/Berlin',
   adminUsername: process.env.ADMIN_USERNAME || 'admin',
+  // Vercel'de ADMIN_PASSWORD silersen varsayılan pastera123 kullanılır
   adminPassword: process.env.ADMIN_PASSWORD || 'pastera123',
   isProduction: process.env.NODE_ENV === 'production',
   isVercel: !!process.env.VERCEL,

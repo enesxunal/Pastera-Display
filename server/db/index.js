@@ -21,8 +21,10 @@ async function initDatabase() {
 
   if (config.databaseUrl) {
     dbType = 'postgres';
-    const { Pool } = require('@neondatabase/serverless');
-    // Neon serverless driver — Vercel'de SSL sorununu önler
+    const ws = require('ws');
+    const { Pool, neonConfig } = require('@neondatabase/serverless');
+    // Vercel Node.js ortamında WebSocket gerekli
+    neonConfig.webSocketConstructor = ws;
     const pool = new Pool({ connectionString: config.databaseUrl });
     await initPostgres(pool);
     db = createPostgresAdapter(pool);

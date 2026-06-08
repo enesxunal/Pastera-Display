@@ -30,7 +30,7 @@
     }
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Bir hata oluştu');
+    if (!res.ok) throw new Error(data.message || data.error || 'Bir hata oluştu');
     return data;
   }
 
