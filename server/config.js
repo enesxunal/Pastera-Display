@@ -8,10 +8,13 @@ module.exports = {
   adminPassword: process.env.ADMIN_PASSWORD || 'pastera123',
   isProduction: process.env.NODE_ENV === 'production',
   isVercel: !!process.env.VERCEL,
-  databaseUrl: process.env.DATABASE_URL || null,
+  // Vercel Postgres farklı isimlerle env gönderebilir
+  databaseUrl:
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    null,
   blobToken: process.env.BLOB_READ_WRITE_TOKEN || null,
-  // Ekran çevrimiçi sayılması için son sinyal süresi (ms)
   heartbeatTimeoutMs: 2 * 60 * 1000,
-  // Ekranların içerik kontrol aralığı (ms)
   pollIntervalMs: 5000,
 };

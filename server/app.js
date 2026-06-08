@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const config = require('./config');
 const { ensureUploadDir, UPLOAD_DIR } = require('./services/storage');
 
 const authRoutes = require('./routes/auth');
@@ -18,9 +19,11 @@ function createApp() {
   app.use(express.json({ limit: '10mb' }));
   app.use(cookieParser());
 
-  // Yerel medya dosyaları
-  ensureUploadDir();
-  app.use('/uploads', express.static(UPLOAD_DIR));
+  // Yerel medya dosyaları (Vercel'de Blob kullanılır)
+  if (!config.isVercel) {
+    ensureUploadDir();
+    app.use('/uploads', express.static(UPLOAD_DIR));
+  }
 
   // API rotaları
   app.use('/api/auth', authRoutes);

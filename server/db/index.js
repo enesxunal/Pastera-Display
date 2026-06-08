@@ -24,13 +24,22 @@ async function initDatabase() {
     const { Pool } = require('pg');
     const pool = new Pool({
       connectionString: config.databaseUrl,
-      ssl: config.isProduction ? { rejectUnauthorized: false } : false,
+      ssl: config.isVercel || config.isProduction ? { rejectUnauthorized: false } : false,
     });
     await initPostgres(pool);
     db = createPostgresAdapter(pool);
+  } else if (config.isVercel) {
+    throw new Error(
+      'Vercel Postgres bağlı değil. Vercel → Storage → Postgres oluşturup projeye Connect edin.'
+    );
   } else {
     dbType = 'sqlite';
-    const Database = require('better-sqlite3');
+    let Database;
+    try {
+      Database = require('better-sqlite3');
+    } catch {
+      throw new Error('Yerel çalıştırma için: npm install (better-sqlite3 devDependency olarak kurulur)');
+    }
     const dbPath = path.join(__dirname, '../../data/pastera.db');
     const dataDir = path.dirname(dbPath);
     if (!fs.existsSync(dataDir)) {
@@ -107,32 +116,29 @@ function createPostgresAdapter(pool) {
 
 /** PostgreSQL tablolarını oluştur */
 async function initPostgres(pool) {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS admin_users (
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS admin_users (
       id SERIAL PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS branches (
+    )`,
+    `CREATE TABLE IF NOT EXISTS branches (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       slug TEXT NOT NULL UNIQUE,
       timezone TEXT DEFAULT 'Europe/Berlin',
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS screens (
+    )`,
+    `CREATE TABLE IF NOT EXISTS screens (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
       slug TEXT NOT NULL UNIQUE,
       branch_id INTEGER DEFAULT 1,
       default_media_id INTEGER,
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS media (
+    )`,
+    `CREATE TABLE IF NOT EXISTS media (
       id SERIAL PRIMARY KEY,
       filename TEXT NOT NULL,
       original_name TEXT NOT NULL,
@@ -141,9 +147,8 @@ async function initPostgres(pool) {
       url TEXT NOT NULL,
       file_size INTEGER DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS playlist_items (
+    )`,
+    `CREATE TABLE IF NOT EXISTS playlist_items (
       id SERIAL PRIMARY KEY,
       screen_id INTEGER NOT NULL,
       media_id INTEGER NOT NULL,
@@ -154,40 +159,43 @@ async function initPostgres(pool) {
       is_default BOOLEAN DEFAULT FALSE,
       is_active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS screen_heartbeats (
+    )`,
+    `CREATE TABLE IF NOT EXISTS screen_heartbeats (
       screen_id INTEGER PRIMARY KEY,
       last_seen TIMESTAMPTZ NOT NULL,
       user_agent TEXT,
       display_mode TEXT DEFAULT 'single'
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
+    )`,
+    `CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS content_version (
+    )`,
+    `CREATE TABLE IF NOT EXISTS content_version (
       id INTEGER PRIMARY KEY,
       version INTEGER DEFAULT 1,
       updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-  `);
+    )`,
+  ];
 
+  for (const sql of statements) {
+    await pool.query(sql);
+  }
+
+  await pool.query(`INSERT INTO content_version (id, version) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`);
+  await pool.query(`INSERT INTO branches (id, name, slug) VALUES (1, 'Pastera', 'pastera') ON CONFLICT (id) DO NOTHING`);
   await pool.query(`
-    INSERT INTO content_version (id, version) VALUES (1, 1) ON CONFLICT (id) DO NOTHING;
-    INSERT INTO branches (id, name, slug) VALUES (1, 'Pastera', 'pastera') ON CONFLICT (slug) DO NOTHING;
     INSERT INTO screens (id, name, slug) VALUES
       (1, 'Ekran 1', '1'),
       (2, 'Ekran 2', '2'),
       (3, 'Ekran 3', '3')
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT (id) DO NOTHING
+  `);
+  await pool.query(`
     INSERT INTO settings (key, value) VALUES
       ('timezone', 'Europe/Berlin'),
       ('brand_name', 'Pastera'),
       ('default_image_duration', '10')
-    ON CONFLICT (key) DO NOTHING;
+    ON CONFLICT (key) DO NOTHING
   `);
 }
 

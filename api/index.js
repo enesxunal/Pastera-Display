@@ -1,26 +1,44 @@
 /**
  * Vercel serverless giriş noktası
- * Tüm istekler bu dosyadan geçer
  */
+const serverless = require('serverless-http');
 const createApp = require('../server/app');
 const { initDatabase } = require('../server/db');
 const { seedAdmin } = require('../server/db/seed');
 const config = require('../server/config');
 
-let app;
-let initialized = false;
+let handler = null;
+let initPromise = null;
 
-async function getApp() {
-  if (!initialized) {
-    await initDatabase();
-    await seedAdmin(config.adminUsername, config.adminPassword);
-    app = createApp();
-    initialized = true;
+async function bootstrap() {
+  if (!initPromise) {
+    initPromise = (async () => {
+      await initDatabase();
+      await seedAdmin(config.adminUsername, config.adminPassword);
+      const app = createApp();
+      return serverless(app);
+    })().catch((err) => {
+      initPromise = null;
+      throw err;
+    });
   }
-  return app;
+  return initPromise;
 }
 
 module.exports = async (req, res) => {
-  const expressApp = await getApp();
-  return expressApp(req, res);
+  try {
+    handler = await bootstrap();
+    return handler(req, res);
+  } catch (err) {
+    console.error('Pastera Display başlatma hatası:', err);
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(
+      JSON.stringify({
+        error: 'Sunucu başlatılamadı',
+        message: err.message,
+        hint: 'Vercel Storage → Postgres ve Blob oluşturup projeye bağlayın. Ortam değişkenlerini kontrol edin.',
+      })
+    );
+  }
 };

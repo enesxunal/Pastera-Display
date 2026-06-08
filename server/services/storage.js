@@ -9,6 +9,7 @@ const UPLOAD_DIR = path.join(__dirname, '../../uploads');
  * Yerel uploads klasörünü oluştur
  */
 function ensureUploadDir() {
+  if (config.isVercel) return;
   if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   }
@@ -49,7 +50,10 @@ async function saveFile(file) {
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 
   // Vercel Blob (üretim)
-  if (config.blobToken) {
+  if (config.blobToken || config.isVercel) {
+    if (!config.blobToken) {
+      throw new Error('Vercel Blob bağlı değil. Storage → Blob oluşturup projeye Connect edin.');
+    }
     const blob = await put(`media/${filename}`, file.buffer, {
       access: 'public',
       token: config.blobToken,
