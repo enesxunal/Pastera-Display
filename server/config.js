@@ -8,10 +8,10 @@ module.exports = {
   adminPassword: process.env.ADMIN_PASSWORD || 'pastera123',
   isProduction: process.env.NODE_ENV === 'production',
   isVercel: !!process.env.VERCEL,
-  // Vercel Postgres farklı isimlerle env gönderebilir
+  // Vercel Postgres — pooled URL öncelikli (serverless için)
   databaseUrl:
-    process.env.DATABASE_URL ||
     process.env.POSTGRES_URL ||
+    process.env.DATABASE_URL ||
     process.env.POSTGRES_URL_NON_POOLING ||
     null,
   blobToken: process.env.BLOB_READ_WRITE_TOKEN || null,
