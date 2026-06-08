@@ -1,12 +1,18 @@
 {
   "version": 2,
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/uploads/(.*)", "destination": "/api/index" },
+    { "source": "/admin", "destination": "/admin/index.html" },
+    { "source": "/screen/unified", "destination": "/screen/unified.html" },
+    { "source": "/screen/1", "destination": "/screen/index.html" },
+    { "source": "/screen/2", "destination": "/screen/index.html" },
+    { "source": "/screen/3", "destination": "/screen/index.html" },
+    { "source": "/", "destination": "/admin/index.html" }
   ],
   "functions": {
     "api/index.js": {
-      "includeFiles": "public/**",
-      "maxDuration": 30
+      "maxDuration": 10
     }
   }
 }

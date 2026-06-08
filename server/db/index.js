@@ -10,102 +10,130 @@ function toPgParams(sql, params) {
   return { sql: sql.replace(/\?/g, () => `$${++i}`), params };
 }
 
-async function withRetry(fn, label = 'DB', attempts = 4) {
+/** Hızlı retry — Vercel Hobby max 10 saniye */
+async function withRetry(fn, attempts = 2) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
       return await fn();
     } catch (err) {
       lastErr = err;
-      console.warn(`${label} ${i + 1}/${attempts}:`, err.message);
-      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 400));
     }
   }
   throw lastErr;
 }
 
-/** Supabase Postgres bağlantısı (Vercel'de kullandığın veritabanı) */
 async function connectSupabase() {
   const { Pool } = require('pg');
-  const pool = new Pool({
-    connectionString: config.supabaseUrl,
-    ssl: { rejectUnauthorized: false },
-    max: 1,
-    idleTimeoutMillis: 10000,
-    connectionTimeoutMillis: 20000,
-  });
+  const urls = [config.rawDatabaseUrl, config.supabaseUrl].filter(Boolean);
+  const unique = [...new Set(urls)];
 
-  const exec = async (text, params = []) => pool.query(text, params);
-  await withRetry(() => pool.query('SELECT 1'), 'Supabase');
-  return exec;
+  let lastErr;
+  for (const url of unique) {
+    try {
+      const pool = new Pool({
+        connectionString: url,
+        ssl: { rejectUnauthorized: false },
+        max: 1,
+        connectionTimeoutMillis: 8000,
+        idleTimeoutMillis: 5000,
+      });
+      await pool.query('SELECT 1');
+      return async (text, params = []) => pool.query(text, params);
+    } catch (err) {
+      lastErr = err;
+      console.warn('Supabase URL denendi, başarısız:', url.slice(0, 40) + '...');
+    }
+  }
+  throw lastErr;
 }
 
-/** Neon HTTP — sadece Neon veritabanları için */
 async function connectNeonHttp() {
   const { neon } = require('@neondatabase/serverless');
   const sql = neon(config.neonHttpUrl);
-
-  const exec = async (text, params = []) => {
+  await sql('SELECT 1');
+  return async (text, params = []) => {
     const rows = await sql(text, params);
     return { rows: rows || [], rowCount: (rows || []).length };
   };
-
-  await withRetry(() => sql('SELECT 1'), 'Neon HTTP');
-  return exec;
 }
 
-/** Genel pg fallback */
 async function connectPg() {
   const { Pool } = require('pg');
   const pool = new Pool({
     connectionString: config.pgUrl,
     ssl: { rejectUnauthorized: false },
     max: 1,
-    connectionTimeoutMillis: 20000,
+    connectionTimeoutMillis: 8000,
   });
-
-  const exec = async (text, params = []) => pool.query(text, params);
-  await withRetry(() => pool.query('SELECT 1'), 'pg');
-  return exec;
+  await pool.query('SELECT 1');
+  return async (text, params = []) => pool.query(text, params);
 }
+
+const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS admin_users (
+  id SERIAL PRIMARY KEY, username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS branches (
+  id SERIAL PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
+  timezone TEXT DEFAULT 'Europe/Berlin', created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS screens (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
+  branch_id INTEGER DEFAULT 1, default_media_id INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS media (
+  id SERIAL PRIMARY KEY, filename TEXT NOT NULL, original_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL, media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  url TEXT NOT NULL, file_size INTEGER DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS playlist_items (
+  id SERIAL PRIMARY KEY, screen_id INTEGER NOT NULL, media_id INTEGER NOT NULL,
+  sort_order INTEGER DEFAULT 0, display_duration INTEGER DEFAULT 10,
+  start_time TEXT, end_time TEXT, is_default BOOLEAN DEFAULT FALSE,
+  is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS screen_heartbeats (
+  screen_id INTEGER PRIMARY KEY, last_seen TIMESTAMPTZ NOT NULL,
+  user_agent TEXT, display_mode TEXT DEFAULT 'single');
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS content_version (
+  id INTEGER PRIMARY KEY, version INTEGER DEFAULT 1, updated_at TIMESTAMPTZ DEFAULT NOW());
+INSERT INTO content_version (id, version) VALUES (1, 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO branches (id, name, slug) VALUES (1, 'Pastera', 'pastera') ON CONFLICT (id) DO NOTHING;
+INSERT INTO screens (id, name, slug) VALUES (1,'Ekran 1','1'),(2,'Ekran 2','2'),(3,'Ekran 3','3') ON CONFLICT (id) DO NOTHING;
+INSERT INTO settings (key, value) VALUES ('timezone','Europe/Berlin'),('brand_name','Pastera'),('default_image_duration','10') ON CONFLICT (key) DO NOTHING;
+`;
 
 async function initDatabase() {
   if (db) return db;
 
   if (config.rawDatabaseUrl) {
     dbType = 'postgres';
-    let queryFn;
+    let exec;
 
     if (config.isSupabaseDb) {
-      // Supabase — senin kurduğun veritabanı
-      queryFn = await connectSupabase();
+      exec = await withRetry(() => connectSupabase());
     } else if (config.isNeonDb && config.neonHttpUrl) {
       try {
-        queryFn = await connectNeonHttp();
+        exec = await withRetry(() => connectNeonHttp());
       } catch {
-        queryFn = await connectPg();
+        exec = await withRetry(() => connectPg());
       }
     } else {
-      queryFn = await connectPg();
+      exec = await withRetry(() => connectPg());
     }
 
-    await initPostgres(queryFn);
-    db = createPostgresAdapter(queryFn);
+    const check = await exec("SELECT to_regclass('public.screens') AS t");
+    if (!check.rows[0]?.t) {
+      await exec(SCHEMA_SQL);
+    }
+
+    db = createPostgresAdapter(exec);
   } else if (config.isVercel) {
-    const hasSupabase = !!process.env.SUPABASE_URL;
-    throw new Error(
-      hasSupabase
-        ? 'Supabase bağlı ama POSTGRES_URL bulunamadı. Vercel → Storage → supabase → Connect to Project tekrar yapın.'
-        : 'Veritabanı yok. Vercel Storage → Supabase veya Postgres oluşturup projeye bağlayın.'
-    );
+    throw new Error('POSTGRES_URL bulunamadı. Supabase → Connect to Project yapın.');
   } else {
     dbType = 'sqlite';
     let Database;
-    try {
-      Database = require('better-sqlite3');
-    } catch {
-      throw new Error('Yerel: npm install');
-    }
+    try { Database = require('better-sqlite3'); } catch { throw new Error('npm install'); }
     const dbPath = path.join(__dirname, '../../data/pastera.db');
     if (!fs.existsSync(path.dirname(dbPath))) fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const sqlite = new Database(dbPath);
@@ -122,9 +150,7 @@ function getDb() {
   return db;
 }
 
-function getDbType() {
-  return dbType;
-}
+function getDbType() { return dbType; }
 
 function createSqliteAdapter(sqlite) {
   return {
@@ -163,45 +189,6 @@ function createPostgresAdapter(exec) {
       return result.rows;
     },
   };
-}
-
-async function initPostgres(exec) {
-  const check = await exec("SELECT to_regclass('public.screens') AS t");
-  if (check.rows[0]?.t) return;
-
-  const tables = [
-    `CREATE TABLE IF NOT EXISTS admin_users (
-      id SERIAL PRIMARY KEY, username TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW())`,
-    `CREATE TABLE IF NOT EXISTS branches (
-      id SERIAL PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
-      timezone TEXT DEFAULT 'Europe/Berlin', created_at TIMESTAMPTZ DEFAULT NOW())`,
-    `CREATE TABLE IF NOT EXISTS screens (
-      id INTEGER PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
-      branch_id INTEGER DEFAULT 1, default_media_id INTEGER,
-      created_at TIMESTAMPTZ DEFAULT NOW())`,
-    `CREATE TABLE IF NOT EXISTS media (
-      id SERIAL PRIMARY KEY, filename TEXT NOT NULL, original_name TEXT NOT NULL,
-      mime_type TEXT NOT NULL, media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
-      url TEXT NOT NULL, file_size INTEGER DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW())`,
-    `CREATE TABLE IF NOT EXISTS playlist_items (
-      id SERIAL PRIMARY KEY, screen_id INTEGER NOT NULL, media_id INTEGER NOT NULL,
-      sort_order INTEGER DEFAULT 0, display_duration INTEGER DEFAULT 10,
-      start_time TEXT, end_time TEXT, is_default BOOLEAN DEFAULT FALSE,
-      is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT NOW())`,
-    `CREATE TABLE IF NOT EXISTS screen_heartbeats (
-      screen_id INTEGER PRIMARY KEY, last_seen TIMESTAMPTZ NOT NULL,
-      user_agent TEXT, display_mode TEXT DEFAULT 'single')`,
-    `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS content_version (
-      id INTEGER PRIMARY KEY, version INTEGER DEFAULT 1, updated_at TIMESTAMPTZ DEFAULT NOW())`,
-  ];
-
-  for (const q of tables) await exec(q);
-  await exec(`INSERT INTO content_version (id, version) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`);
-  await exec(`INSERT INTO branches (id, name, slug) VALUES (1, 'Pastera', 'pastera') ON CONFLICT (id) DO NOTHING`);
-  await exec(`INSERT INTO screens (id, name, slug) VALUES (1,'Ekran 1','1'),(2,'Ekran 2','2'),(3,'Ekran 3','3') ON CONFLICT (id) DO NOTHING`);
-  await exec(`INSERT INTO settings (key, value) VALUES ('timezone','Europe/Berlin'),('brand_name','Pastera'),('default_image_duration','10') ON CONFLICT (key) DO NOTHING`);
 }
 
 async function bumpContentVersion() {
