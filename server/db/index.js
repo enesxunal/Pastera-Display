@@ -12,6 +12,13 @@ function toPgParams(sql, params) {
   return { sql: pgSql, params };
 }
 
+/** Uzak Postgres bağlantısı için SSL ayarı (Vercel/Neon) */
+function getPostgresSsl(connectionString) {
+  if (!connectionString) return false;
+  if (/localhost|127\.0\.0\.1/i.test(connectionString)) return false;
+  return { rejectUnauthorized: false };
+}
+
 /**
  * Veritabanı bağlantısını başlatır.
  * Yerelde SQLite, Vercel'de DATABASE_URL varsa PostgreSQL kullanır.
@@ -24,7 +31,7 @@ async function initDatabase() {
     const { Pool } = require('pg');
     const pool = new Pool({
       connectionString: config.databaseUrl,
-      ssl: config.isVercel || config.isProduction ? { rejectUnauthorized: false } : false,
+      ssl: getPostgresSsl(config.databaseUrl),
     });
     await initPostgres(pool);
     db = createPostgresAdapter(pool);
