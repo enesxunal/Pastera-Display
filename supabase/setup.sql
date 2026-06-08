@@ -82,5 +82,5 @@ ON CONFLICT (key) DO NOTHING;
 
 -- Varsayılan admin: admin / pastera123 (bcrypt hash)
 INSERT INTO admin_users (username, password_hash) VALUES
-  ('admin', '$2a$10$8K1p/a0dL3.Lk7K8K8K8KuO8K8K8K8K8K8K8K8K8K8K8K8K8K8K8K')
+  ('admin', '$2a$10$YoRg2xvplevBoZbHcnPsuOaHcWgUXvL7PMsO8RezdFPu37rn9gU2.')
 ON CONFLICT (username) DO NOTHING;
