@@ -1,7 +1,8 @@
 {
   "version": 2,
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/api/media/(.*)", "destination": "/api/index" },
+    { "source": "/api/screens/(.*)", "destination": "/api/index" },
     { "source": "/uploads/(.*)", "destination": "/api/index" },
     { "source": "/admin", "destination": "/admin/index.html" },
     { "source": "/screen/unified", "destination": "/screen/unified.html" },
@@ -11,8 +12,9 @@
     { "source": "/", "destination": "/admin/index.html" }
   ],
   "functions": {
-    "api/index.js": {
-      "maxDuration": 10
-    }
+    "api/auth/login.js": { "maxDuration": 10 },
+    "api/auth/me.js": { "maxDuration": 10 },
+    "api/health.js": { "maxDuration": 10 },
+    "api/index.js": { "maxDuration": 10 }
   }
 }
