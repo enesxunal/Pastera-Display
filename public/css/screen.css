@@ -1,0 +1,99 @@
+/* Pastera Display - Ortak stiller */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Kiosk modu - kaydırma çubuklarını gizle */
+::-webkit-scrollbar {
+  display: none;
+}
+
+/* Fade geçiş animasyonu */
+.fade-enter {
+  opacity: 0;
+}
+
+.fade-enter-active {
+  opacity: 1;
+  transition: opacity 0.8s ease-in-out;
+}
+
+.fade-exit {
+  opacity: 1;
+}
+
+.fade-exit-active {
+  opacity: 0;
+  transition: opacity 0.8s ease-in-out;
+}
+
+.screen-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+.screen-media {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.screen-media.cover {
+  object-fit: cover;
+}
+
+.screen-placeholder {
+  color: #444;
+  font-family: system-ui, sans-serif;
+  font-size: 2rem;
+  text-align: center;
+}
+
+.screen-status {
+  position: fixed;
+  bottom: 8px;
+  right: 12px;
+  font-family: monospace;
+  font-size: 11px;
+  color: rgba(255,255,255,0.2);
+  pointer-events: none;
+  z-index: 100;
+}
+
+/* Birleşik mod - 3 panel yan yana */
+.unified-container {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.unified-panel {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  border-right: 1px solid #111;
+}
+
+.unified-panel:last-child {
+  border-right: none;
+}
+
+.unified-panel .screen-container {
+  position: absolute;
+  inset: 0;
+}
