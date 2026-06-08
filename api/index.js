@@ -37,7 +37,7 @@ module.exports = async (req, res) => {
       JSON.stringify({
         error: 'Sunucu başlatılamadı',
         message: err.message,
-        hint: 'Vercel Storage → Postgres ve Blob oluşturup projeye bağlayın. Ortam değişkenlerini kontrol edin.',
+        hint: 'Supabase SQL Editor\'de supabase/setup.sql dosyasını bir kez çalıştırın. SUPABASE_URL ve SERVICE_ROLE_KEY env kontrol edin.',
       })
     );
   }

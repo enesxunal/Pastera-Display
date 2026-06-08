@@ -1,18 +1,23 @@
 const bcrypt = require('bcryptjs');
-const { getDb } = require('./index');
+const config = require('../config');
+const { getDbType } = require('./index');
+const sb = require('./supabase');
 
-/** Admin yoksa oluştur — her istekte şifre güncelleme YOK (hız için) */
 async function seedAdmin(username, password) {
+  if (getDbType() === 'supabase') {
+    const existing = await sb.getAdminByUsername(username);
+    if (existing) return;
+    await sb.createAdmin(username, bcrypt.hashSync(password, 10));
+    return;
+  }
+  const { getDb } = require('./index');
   const db = getDb();
   const existing = await db.get('SELECT id FROM admin_users WHERE username = ?', [username]);
   if (existing) return;
-
-  const hash = bcrypt.hashSync(password, 10);
-  await db.run(
-    'INSERT INTO admin_users (username, password_hash) VALUES (?, ?)',
-    [username, hash]
-  );
-  console.log(`✓ Admin oluşturuldu: ${username}`);
+  await db.run('INSERT INTO admin_users (username, password_hash) VALUES (?, ?)', [
+    username,
+    bcrypt.hashSync(password, 10),
+  ]);
 }
 
 module.exports = { seedAdmin };
