@@ -83,7 +83,7 @@ function createSqliteAdapter(sqlite) {
   };
 }
 
-/** Neon HTTP adapter — Vercel serverless için hızlı */
+/** Neon HTTP adapter — sql('SELECT ...', [params]) şeklinde çağrılır */
 function createNeonAdapter(sql) {
   return {
     type: 'postgres',
@@ -91,7 +91,7 @@ function createNeonAdapter(sql) {
       const { sql: pgSql, params: pgParams } = toPgParams(queryStr, params);
       const isInsert = pgSql.trim().toUpperCase().startsWith('INSERT');
       const finalSql = isInsert && !pgSql.includes('RETURNING') ? `${pgSql} RETURNING id` : pgSql;
-      const rows = await sql.query(finalSql, pgParams);
+      const rows = await sql(finalSql, pgParams);
       return {
         changes: rows.length || 1,
         lastInsertRowid: rows[0]?.id,
@@ -99,19 +99,19 @@ function createNeonAdapter(sql) {
     },
     async get(queryStr, params = []) {
       const { sql: pgSql, params: pgParams } = toPgParams(queryStr, params);
-      const rows = await sql.query(pgSql, pgParams);
+      const rows = await sql(pgSql, pgParams);
       return rows[0] || null;
     },
     async all(queryStr, params = []) {
       const { sql: pgSql, params: pgParams } = toPgParams(queryStr, params);
-      return sql.query(pgSql, pgParams);
+      return sql(pgSql, pgParams);
     },
   };
 }
 
 /** PostgreSQL tablolarını oluştur (sadece ilk seferde) */
 async function initPostgres(sql) {
-  const check = await sql.query("SELECT to_regclass('public.screens') AS t");
+  const check = await sql("SELECT to_regclass('public.screens') AS t");
   if (check[0]?.t) return;
 
   const statements = [
@@ -176,19 +176,19 @@ async function initPostgres(sql) {
   ];
 
   for (const q of statements) {
-    await sql.query(q);
+    await sql(q);
   }
 
-  await sql.query(`INSERT INTO content_version (id, version) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`);
-  await sql.query(`INSERT INTO branches (id, name, slug) VALUES (1, 'Pastera', 'pastera') ON CONFLICT (id) DO NOTHING`);
-  await sql.query(`
+  await sql(`INSERT INTO content_version (id, version) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`);
+  await sql(`INSERT INTO branches (id, name, slug) VALUES (1, 'Pastera', 'pastera') ON CONFLICT (id) DO NOTHING`);
+  await sql(`
     INSERT INTO screens (id, name, slug) VALUES
       (1, 'Ekran 1', '1'),
       (2, 'Ekran 2', '2'),
       (3, 'Ekran 3', '3')
     ON CONFLICT (id) DO NOTHING
   `);
-  await sql.query(`
+  await sql(`
     INSERT INTO settings (key, value) VALUES
       ('timezone', 'Europe/Berlin'),
       ('brand_name', 'Pastera'),
