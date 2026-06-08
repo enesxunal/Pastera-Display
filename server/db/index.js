@@ -14,20 +14,17 @@ function toPgParams(sql, params) {
 
 /**
  * Veritabanı bağlantısını başlatır.
- * Yerelde SQLite, Vercel'de DATABASE_URL varsa PostgreSQL kullanır.
+ * Yerelde SQLite, Vercel'de Postgres (Neon HTTP — hızlı cold start).
  */
 async function initDatabase() {
   if (db) return db;
 
   if (config.databaseUrl) {
     dbType = 'postgres';
-    const ws = require('ws');
-    const { Pool, neonConfig } = require('@neondatabase/serverless');
-    // Vercel Node.js ortamında WebSocket gerekli
-    neonConfig.webSocketConstructor = ws;
-    const pool = new Pool({ connectionString: config.databaseUrl });
-    await initPostgres(pool);
-    db = createPostgresAdapter(pool);
+    const { neon } = require('@neondatabase/serverless');
+    const sql = neon(config.databaseUrl);
+    await initPostgres(sql);
+    db = createNeonAdapter(sql);
   } else if (config.isVercel) {
     throw new Error(
       'Vercel Postgres bağlı değil. Vercel → Storage → Postgres oluşturup projeye Connect edin.'
@@ -38,7 +35,7 @@ async function initDatabase() {
     try {
       Database = require('better-sqlite3');
     } catch {
-      throw new Error('Yerel çalıştırma için: npm install (better-sqlite3 devDependency olarak kurulur)');
+      throw new Error('Yerel çalıştırma için: npm install');
     }
     const dbPath = path.join(__dirname, '../../data/pastera.db');
     const dataDir = path.dirname(dbPath);
@@ -66,7 +63,7 @@ function getDbType() {
   return dbType;
 }
 
-/** SQLite adapter - tüm metodlar Promise döndürür */
+/** SQLite adapter */
 function createSqliteAdapter(sqlite) {
   return {
     type: 'sqlite',
@@ -86,36 +83,37 @@ function createSqliteAdapter(sqlite) {
   };
 }
 
-/** PostgreSQL adapter */
-function createPostgresAdapter(pool) {
+/** Neon HTTP adapter — Vercel serverless için hızlı */
+function createNeonAdapter(sql) {
   return {
     type: 'postgres',
-    async run(sql, params = []) {
-      const { sql: pgSql, params: pgParams } = toPgParams(sql, params);
+    async run(queryStr, params = []) {
+      const { sql: pgSql, params: pgParams } = toPgParams(queryStr, params);
       const isInsert = pgSql.trim().toUpperCase().startsWith('INSERT');
-      const returningSql = isInsert && !pgSql.includes('RETURNING') ? `${pgSql} RETURNING id` : pgSql;
-      const result = await pool.query(returningSql, pgParams);
+      const finalSql = isInsert && !pgSql.includes('RETURNING') ? `${pgSql} RETURNING id` : pgSql;
+      const rows = await sql.query(finalSql, pgParams);
       return {
-        changes: result.rowCount,
-        lastInsertRowid: result.rows[0]?.id,
+        changes: rows.length || 1,
+        lastInsertRowid: rows[0]?.id,
       };
     },
-    async get(sql, params = []) {
-      const { sql: pgSql, params: pgParams } = toPgParams(sql, params);
-      const result = await pool.query(pgSql, pgParams);
-      return result.rows[0] || null;
+    async get(queryStr, params = []) {
+      const { sql: pgSql, params: pgParams } = toPgParams(queryStr, params);
+      const rows = await sql.query(pgSql, pgParams);
+      return rows[0] || null;
     },
-    async all(sql, params = []) {
-      const { sql: pgSql, params: pgParams } = toPgParams(sql, params);
-      const result = await pool.query(pgSql, pgParams);
-      return result.rows;
+    async all(queryStr, params = []) {
+      const { sql: pgSql, params: pgParams } = toPgParams(queryStr, params);
+      return sql.query(pgSql, pgParams);
     },
-    pool,
   };
 }
 
-/** PostgreSQL tablolarını oluştur */
-async function initPostgres(pool) {
+/** PostgreSQL tablolarını oluştur (sadece ilk seferde) */
+async function initPostgres(sql) {
+  const check = await sql.query("SELECT to_regclass('public.screens') AS t");
+  if (check[0]?.t) return;
+
   const statements = [
     `CREATE TABLE IF NOT EXISTS admin_users (
       id SERIAL PRIMARY KEY,
@@ -177,20 +175,20 @@ async function initPostgres(pool) {
     )`,
   ];
 
-  for (const sql of statements) {
-    await pool.query(sql);
+  for (const q of statements) {
+    await sql.query(q);
   }
 
-  await pool.query(`INSERT INTO content_version (id, version) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`);
-  await pool.query(`INSERT INTO branches (id, name, slug) VALUES (1, 'Pastera', 'pastera') ON CONFLICT (id) DO NOTHING`);
-  await pool.query(`
+  await sql.query(`INSERT INTO content_version (id, version) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`);
+  await sql.query(`INSERT INTO branches (id, name, slug) VALUES (1, 'Pastera', 'pastera') ON CONFLICT (id) DO NOTHING`);
+  await sql.query(`
     INSERT INTO screens (id, name, slug) VALUES
       (1, 'Ekran 1', '1'),
       (2, 'Ekran 2', '2'),
       (3, 'Ekran 3', '3')
     ON CONFLICT (id) DO NOTHING
   `);
-  await pool.query(`
+  await sql.query(`
     INSERT INTO settings (key, value) VALUES
       ('timezone', 'Europe/Berlin'),
       ('brand_name', 'Pastera'),
@@ -199,7 +197,6 @@ async function initPostgres(pool) {
   `);
 }
 
-/** İçerik değiştiğinde sürüm numarasını artır */
 async function bumpContentVersion() {
   const database = getDb();
   if (database.type === 'postgres') {
@@ -213,7 +210,6 @@ async function bumpContentVersion() {
   }
 }
 
-/** Mevcut içerik sürümünü getir */
 async function getContentVersion() {
   const database = getDb();
   const row = await database.get('SELECT version FROM content_version WHERE id = 1');

@@ -30,7 +30,12 @@
     }
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.message || data.error || 'Bir hata oluştu');
+    if (!res.ok) {
+      if (res.status === 504) {
+        throw new Error('Sunucu yavaş başlıyor, 10 saniye bekleyip tekrar deneyin');
+      }
+      throw new Error(data.message || data.error || `Sunucu hatası (${res.status})`);
+    }
     return data;
   }
 
@@ -371,13 +376,20 @@
   function setupEvents() {
     $('#login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const btn = e.target.querySelector('button[type="submit"]');
       const username = $('#login-username').value;
       const password = $('#login-password').value;
+      $('#login-error').classList.add('hidden');
+      btn.disabled = true;
+      btn.textContent = 'Giriş yapılıyor...';
       try {
         await login(username, password);
       } catch (err) {
         $('#login-error').textContent = err.message;
         $('#login-error').classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Giriş Yap';
       }
     });
 
