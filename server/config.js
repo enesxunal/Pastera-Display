@@ -1,26 +1,51 @@
 require('dotenv').config();
 
-/** Ham Postgres URL'sini bul */
+/** Tüm olası Postgres env kaynaklarını tara */
 function findRawUrl() {
-  let url =
-    process.env.POSTGRES_URL_NON_POOLING ||
-    process.env.POSTGRES_URL ||
-    process.env.DATABASE_URL ||
-    process.env.POSTGRES_PRISMA_URL ||
-    null;
+  const candidates = [
+    process.env.POSTGRES_URL,
+    process.env.POSTGRES_URL_NON_POOLING,
+    process.env.DATABASE_URL,
+    process.env.SUPABASE_DATABASE_URL,
+    process.env.POSTGRES_PRISMA_URL,
+  ].filter(Boolean);
 
-  if (!url && process.env.POSTGRES_HOST) {
-    const user = process.env.POSTGRES_USER || 'default';
+  if (candidates.length) return candidates[0];
+
+  if (process.env.POSTGRES_HOST) {
+    const user = process.env.POSTGRES_USER || 'postgres';
     const pass = process.env.POSTGRES_PASSWORD || '';
     const host = process.env.POSTGRES_HOST;
-    const db = process.env.POSTGRES_DATABASE || 'verceldb';
-    url = `postgres://${user}:${encodeURIComponent(pass)}@${host}/${db}`;
+    const db = process.env.POSTGRES_DATABASE || 'postgres';
+    const port = process.env.POSTGRES_PORT || '6543';
+    return `postgres://${user}:${encodeURIComponent(pass)}@${host}:${port}/${db}`;
   }
 
-  return url;
+  return null;
 }
 
-/** Neon HTTP driver için — pooler OLMADAN direct endpoint */
+function isSupabase(url) {
+  return url && url.includes('supabase.com');
+}
+
+function isNeon(url) {
+  return url && url.includes('.neon.tech');
+}
+
+/** Supabase serverless — transaction pooler port 6543 */
+function toSupabaseUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.port === '5432' || !u.port) u.port = '6543';
+    u.searchParams.set('pgbouncer', 'true');
+    u.searchParams.delete('sslmode');
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+/** Neon HTTP — pooler olmadan direct endpoint */
 function toNeonHttpUrl(url) {
   if (!url) return null;
   try {
@@ -35,12 +60,12 @@ function toNeonHttpUrl(url) {
   }
 }
 
-/** pg fallback için — pooler + sslmode=no-verify */
+/** pg fallback — sslmode=no-verify */
 function toPgUrl(url) {
   if (!url) return null;
   try {
     const u = new URL(url);
-    if (u.hostname.includes('.neon.tech') && !u.hostname.includes('-pooler')) {
+    if (isNeon(u.toString()) && !u.hostname.includes('-pooler')) {
       const parts = u.hostname.split('.');
       parts[0] = parts[0] + '-pooler';
       u.hostname = parts.join('.');
@@ -64,8 +89,11 @@ module.exports = {
   isProduction: process.env.NODE_ENV === 'production',
   isVercel: !!process.env.VERCEL,
   rawDatabaseUrl: rawUrl,
-  neonHttpUrl: toNeonHttpUrl(rawUrl),
-  pgUrl: toPgUrl(rawUrl),
+  isSupabaseDb: isSupabase(rawUrl),
+  isNeonDb: isNeon(rawUrl),
+  supabaseUrl: rawUrl && isSupabase(rawUrl) ? toSupabaseUrl(rawUrl) : null,
+  neonHttpUrl: rawUrl && isNeon(rawUrl) ? toNeonHttpUrl(rawUrl) : null,
+  pgUrl: rawUrl ? toPgUrl(rawUrl) : null,
   databaseUrl: rawUrl,
   blobToken: process.env.BLOB_READ_WRITE_TOKEN || null,
   heartbeatTimeoutMs: 2 * 60 * 1000,

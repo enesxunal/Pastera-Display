@@ -4,7 +4,6 @@ const config = require('../config');
 
 let db = null;
 let dbType = 'sqlite';
-let queryFn = null;
 
 function toPgParams(sql, params) {
   let i = 0;
@@ -25,7 +24,23 @@ async function withRetry(fn, label = 'DB', attempts = 4) {
   throw lastErr;
 }
 
-/** Neon HTTP bağlantısı — SSL sertifika sorunu YOK (HTTPS fetch kullanır) */
+/** Supabase Postgres bağlantısı (Vercel'de kullandığın veritabanı) */
+async function connectSupabase() {
+  const { Pool } = require('pg');
+  const pool = new Pool({
+    connectionString: config.supabaseUrl,
+    ssl: { rejectUnauthorized: false },
+    max: 1,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 20000,
+  });
+
+  const exec = async (text, params = []) => pool.query(text, params);
+  await withRetry(() => pool.query('SELECT 1'), 'Supabase');
+  return exec;
+}
+
+/** Neon HTTP — sadece Neon veritabanları için */
 async function connectNeonHttp() {
   const { neon } = require('@neondatabase/serverless');
   const sql = neon(config.neonHttpUrl);
@@ -39,7 +54,7 @@ async function connectNeonHttp() {
   return exec;
 }
 
-/** pg TCP fallback — sslmode=no-verify */
+/** Genel pg fallback */
 async function connectPg() {
   const { Pool } = require('pg');
   const pool = new Pool({
@@ -50,8 +65,7 @@ async function connectPg() {
   });
 
   const exec = async (text, params = []) => pool.query(text, params);
-
-  await withRetry(() => pool.query('SELECT 1'), 'pg Pool');
+  await withRetry(() => pool.query('SELECT 1'), 'pg');
   return exec;
 }
 
@@ -60,13 +74,15 @@ async function initDatabase() {
 
   if (config.rawDatabaseUrl) {
     dbType = 'postgres';
+    let queryFn;
 
-    // Vercel: önce Neon HTTP (SSL sorunu olmaz)
-    if (config.isVercel && config.neonHttpUrl) {
+    if (config.isSupabaseDb) {
+      // Supabase — senin kurduğun veritabanı
+      queryFn = await connectSupabase();
+    } else if (config.isNeonDb && config.neonHttpUrl) {
       try {
         queryFn = await connectNeonHttp();
-      } catch (neonErr) {
-        console.warn('Neon HTTP başarısız, pg deneniyor:', neonErr.message);
+      } catch {
         queryFn = await connectPg();
       }
     } else {
@@ -76,7 +92,12 @@ async function initDatabase() {
     await initPostgres(queryFn);
     db = createPostgresAdapter(queryFn);
   } else if (config.isVercel) {
-    throw new Error('Postgres bağlı değil. Vercel → Storage → Postgres → Connect to Project');
+    const hasSupabase = !!process.env.SUPABASE_URL;
+    throw new Error(
+      hasSupabase
+        ? 'Supabase bağlı ama POSTGRES_URL bulunamadı. Vercel → Storage → supabase → Connect to Project tekrar yapın.'
+        : 'Veritabanı yok. Vercel Storage → Supabase veya Postgres oluşturup projeye bağlayın.'
+    );
   } else {
     dbType = 'sqlite';
     let Database;
