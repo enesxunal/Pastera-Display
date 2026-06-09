@@ -1,6 +1,7 @@
 {
   "version": 2,
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/admin", "destination": "/admin/index.html" },
     { "source": "/screen/unified", "destination": "/screen/unified.html" },
     { "source": "/screen/1", "destination": "/screen/index.html" },
@@ -9,6 +10,6 @@
     { "source": "/", "destination": "/admin/index.html" }
   ],
   "functions": {
-    "api/**/*.js": { "maxDuration": 10 }
+    "api/index.js": { "maxDuration": 10 }
   }
 }
