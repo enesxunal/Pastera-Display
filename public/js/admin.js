@@ -93,8 +93,12 @@
 
   /** Medya listesi */
   async function loadMedia() {
-    mediaList = await api('/api/media');
-    renderMediaLibrary();
+    try {
+      mediaList = await api('/api/media');
+      renderMediaLibrary();
+    } catch (err) {
+      toast('Medya listesi yüklenemedi: ' + err.message, true);
+    }
   }
 
   /** Ekran durumları */
@@ -105,8 +109,12 @@
 
   /** Aktif ekranın playlist'i */
   async function loadPlaylist() {
-    playlistItems = await api(`/api/screens/${currentScreen}/playlist-items`);
-    renderPlaylist();
+    try {
+      playlistItems = await api(`/api/screens/${currentScreen}/playlist-items`);
+      renderPlaylist();
+    } catch (err) {
+      toast('Playlist yüklenemedi: ' + err.message, true);
+    }
   }
 
   /** Medya kütüphanesini çiz */
@@ -128,6 +136,7 @@
           <p class="text-sm font-medium text-gray-700 truncate">${m.original_name}</p>
           <p class="text-xs text-gray-400">${m.media_type === 'video' ? 'Video' : 'Görsel'}</p>
         </div>
+        <button class="add-to-screen text-xs bg-pastera text-white px-2 py-1 rounded-lg hover:bg-pastera-dark flex-shrink-0" data-id="${m.id}">Ekrana Ekle</button>
         <button class="delete-media text-gray-300 hover:text-red-500 text-lg leading-none px-1" data-id="${m.id}" title="Sil">×</button>
       </div>
     `).join('');
@@ -135,8 +144,17 @@
     // Sürükleme olayları
     el.querySelectorAll('[draggable="true"]').forEach((item) => {
       item.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', item.dataset.mediaId);
         e.dataTransfer.setData('mediaId', item.dataset.mediaId);
         e.dataTransfer.effectAllowed = 'copy';
+      });
+    });
+
+    // Ekrana ekle butonu
+    el.querySelectorAll('.add-to-screen').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await addMediaToScreen(parseInt(btn.dataset.id, 10));
       });
     });
 
@@ -273,6 +291,20 @@
     });
   }
 
+  /** Medyayı aktif ekrana ekle */
+  async function addMediaToScreen(mediaId) {
+    try {
+      await api(`/api/screens/${currentScreen}/playlist-items`, {
+        method: 'POST',
+        body: JSON.stringify({ mediaId, sortOrder: playlistItems.length }),
+      });
+      toast(`Ekran ${currentScreen}'e eklendi`);
+      loadPlaylist();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+
   /** Drop zone - medyayı ekrana ekle */
   function setupDropZone() {
     const zone = $('#playlist-dropzone');
@@ -287,19 +319,12 @@
     zone.addEventListener('drop', async (e) => {
       e.preventDefault();
       zone.classList.remove('drag-over');
-      const mediaId = parseInt(e.dataTransfer.getData('mediaId'));
-      if (!mediaId) return;
-
-      try {
-        await api(`/api/screens/${currentScreen}/playlist-items`, {
-          method: 'POST',
-          body: JSON.stringify({ mediaId, sortOrder: playlistItems.length }),
-        });
-        toast('Ekrana eklendi');
-        loadPlaylist();
-      } catch (err) {
-        toast(err.message, true);
+      const mediaId = parseInt(e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('mediaId'));
+      if (!mediaId) {
+        toast('Sürükleme başarısız — "Ekrana Ekle" butonunu kullanın', true);
+        return;
       }
+      await addMediaToScreen(mediaId);
     });
   }
 
@@ -309,19 +334,23 @@
       const files = [...e.target.files];
       if (!files.length) return;
 
+      let ok = 0;
       for (const file of files) {
         const form = new FormData();
         form.append('file', file);
         try {
           await api('/api/media/upload', { method: 'POST', body: form, headers: {} });
+          ok++;
         } catch (err) {
           toast(`${file.name}: ${err.message}`, true);
         }
       }
 
-      toast(`${files.length} dosya yüklendi`);
+      if (ok > 0) {
+        toast(`${ok} dosya yüklendi — "Ekrana Ekle" ile atayın`);
+        await loadMedia();
+      }
       e.target.value = '';
-      loadMedia();
     });
   }
 
