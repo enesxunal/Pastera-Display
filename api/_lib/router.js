@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const Busboy = require('busboy');
 const path = require('path');
 const { put, del } = require('@vercel/blob');
-const { getSupabase, err, flatPlaylist } = require('./supabase');
+const { getSupabase, err, fetchPlaylistWithMedia, fetchPlaylistItemWithMedia } = require('./supabase');
 const { verifyToken } = require('./auth');
 
 const JWT_SECRET = () => process.env.JWT_SECRET || 'pastera-dev-secret';
@@ -131,9 +131,7 @@ async function handleRequest(req, res, urlPath) {
     const screenId = parseInt(playlistMatch[1], 10);
     const { data: tzRow } = await sb.from('settings').select('value').eq('key', 'timezone').maybeSingle();
     const timezone = tzRow?.value || 'Europe/Berlin';
-    const { data, error } = await sb.from('playlist_items').select('*, media(url, media_type, original_name)').eq('screen_id', screenId).order('sort_order').order('id');
-    err(error);
-    const flat = (data || []).map(flatPlaylist);
+    const flat = await fetchPlaylistWithMedia(screenId);
     const active = getActivePlaylist(flat, timezone);
     const { data: ver } = await sb.from('content_version').select('version').eq('id', 1).maybeSingle();
     return res.json({
@@ -219,9 +217,7 @@ async function handleRequest(req, res, urlPath) {
   if (plItems) {
     const screenId = parseInt(plItems[1], 10);
     if (method === 'GET') {
-      const { data, error } = await sb.from('playlist_items').select('*, media(url, media_type, original_name, mime_type)').eq('screen_id', screenId).order('sort_order').order('id');
-      err(error);
-      return res.json((data || []).map(flatPlaylist));
+      return res.json(await fetchPlaylistWithMedia(screenId));
     }
     if (method === 'POST') {
       const body = await readJson(req);
@@ -233,9 +229,7 @@ async function handleRequest(req, res, urlPath) {
       }).select().single();
       err(error);
       await bumpVersion(sb);
-      const { data: full, error: fErr } = await sb.from('playlist_items').select('*, media(url, media_type, original_name)').eq('id', data.id).single();
-      err(fErr);
-      return res.status(201).json(flatPlaylist(full));
+      return res.status(201).json(await fetchPlaylistItemWithMedia(data.id));
     }
   }
 
@@ -258,9 +252,7 @@ async function handleRequest(req, res, urlPath) {
       }).eq('id', itemId);
       err(error);
       await bumpVersion(sb);
-      const { data: full, error: fErr } = await sb.from('playlist_items').select('*, media(url, media_type, original_name)').eq('id', itemId).single();
-      err(fErr);
-      return res.json(flatPlaylist(full));
+      return res.json(await fetchPlaylistItemWithMedia(itemId));
     }
     if (method === 'DELETE') {
       await sb.from('playlist_items').delete().eq('id', itemId);
